@@ -1,0 +1,24 @@
+# Rust target directory
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Editor & IDE directories
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Binaries and downloaded resources
+resources/sing-box.exe
+resources/sing-box.zip
+resources/wintun.dll
+
+# OS files
+Thumbs.db
+[Dd]esktop.ini
