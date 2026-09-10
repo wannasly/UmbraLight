@@ -391,7 +391,7 @@ fn inbounds(settings: &Settings) -> Value {
             "type": "tun",
             "tag": "tun-in",
             "interface_name": "lightgui-tun",
-            "inet4_address": "172.19.0.1/30",
+            "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
             "mtu": settings.tun_mtu,
             "auto_route": true,
             "strict_route": settings.tun_strict_route,
@@ -529,6 +529,8 @@ fn route(settings: &Settings) -> Value {
         RouteTarget::Direct => "direct",
     };
     route.insert("final".into(), json!(default_outbound));
+    route.insert("default_domain_resolver".into(), json!("dns-local"));
+    route.insert("auto_detect_interface".into(), json!(true));
 
     Value::Object(route)
 }
@@ -537,6 +539,7 @@ fn route(settings: &Settings) -> Value {
 mod tests {
     use super::*;
     use crate::models::{ProxyNode, Security, Transport, VlessConfig};
+    use crate::singbox::process::find_singbox_binary;
 
     #[test]
     fn test_generate_config_structure() {
@@ -552,7 +555,7 @@ mod tests {
             total_down: 0,
             raw: "".into(),
             kind: ProxyKind::Vless(VlessConfig {
-                uuid: "uuid-123".into(),
+                uuid: "b831381d-6324-4d53-ad4f-8cda48b30811".into(),
                 flow: "".into(),
                 security: Security::None,
                 sni: "".into(),
@@ -586,6 +589,8 @@ mod tests {
         assert_eq!(outbounds[0]["tag"], "proxy");
         assert_eq!(outbounds[1]["type"], "urltest");
         assert_eq!(outbounds[1]["tag"], "auto");
+
+        assert_eq!(val["route"]["default_domain_resolver"], "dns-local");
     }
 
     #[test]
@@ -597,6 +602,64 @@ mod tests {
         let inbounds = cfg.json["inbounds"].as_array().unwrap();
         assert_eq!(inbounds[0]["type"], "tun");
         assert_eq!(inbounds[0]["interface_name"], "lightgui-tun");
-        assert_eq!(inbounds[0]["inet4_address"], "172.19.0.1/30");
+        assert_eq!(
+            inbounds[0]["address"],
+            json!(["172.19.0.1/30", "fdfe:dcba:9876::1/126"])
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_generated_configs_with_singbox_check() {
+        let Some(bin) = find_singbox_binary(None) else {
+            return;
+        };
+
+        let temp_dir = std::env::temp_dir().join(format!("lightgui-check-test-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let settings = Settings::default();
+        let node = ProxyNode {
+            id: "node-check".into(),
+            name: "Test Node".into(),
+            server: "1.2.3.4".into(),
+            port: 443,
+            last_ping_ms: None,
+            favorite: false,
+            total_up: 0,
+            total_down: 0,
+            raw: "".into(),
+            kind: ProxyKind::Vless(VlessConfig {
+                uuid: "b831381d-6324-4d53-ad4f-8cda48b30811".into(),
+                flow: "".into(),
+                security: Security::None,
+                sni: "".into(),
+                fingerprint: "".into(),
+                public_key: "".into(),
+                short_id: "".into(),
+                insecure: false,
+                alpn: vec![],
+                transport: Transport::Tcp,
+            }),
+        };
+
+        // 1. Test Mixed Mode Config
+        let cfg_mixed = generate(&settings, &[&node], Some("node-check"), 9191, "test-token").unwrap();
+        let path_mixed = temp_dir.join("mixed.json");
+        std::fs::write(&path_mixed, serde_json::to_vec_pretty(&cfg_mixed.json).unwrap()).unwrap();
+
+        let check_res_mixed = crate::singbox::process::check_config(&bin, &path_mixed, &temp_dir).await;
+        assert!(check_res_mixed.is_ok(), "mixed config validation failed: {:?}", check_res_mixed.err());
+
+        // 2. Test TUN Mode Config
+        let mut settings_tun = settings.clone();
+        settings_tun.mode = CoreMode::Tun;
+        let cfg_tun = generate(&settings_tun, &[&node], Some("node-check"), 9192, "test-token").unwrap();
+        let path_tun = temp_dir.join("tun.json");
+        std::fs::write(&path_tun, serde_json::to_vec_pretty(&cfg_tun.json).unwrap()).unwrap();
+
+        let check_res_tun = crate::singbox::process::check_config(&bin, &path_tun, &temp_dir).await;
+        assert!(check_res_tun.is_ok(), "tun config validation failed: {:?}", check_res_tun.err());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
