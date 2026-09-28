@@ -1,4 +1,4 @@
-﻿use std::collections::VecDeque;
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,6 +20,7 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 pub const LOG_CAP: usize = 1000;
 pub const STARTUP_CONFIRM: Duration = Duration::from_millis(1500);
+pub const STARTUP_TIMEOUT: Duration = Duration::from_secs(25);
 pub const STARTUP_POLL: Duration = Duration::from_millis(100);
 pub const KILL_GRACE: Duration = Duration::from_secs(3);
 
@@ -149,7 +150,9 @@ pub fn find_singbox_binary(custom_data_dir: Option<&Path>) -> Option<PathBuf> {
     }
 
     // 2. Check %APPDATA%\lightgui\bin\sing-box.exe
-    let data_dir = custom_data_dir.map(PathBuf::from).unwrap_or_else(storage::default_data_dir);
+    let data_dir = custom_data_dir
+        .map(PathBuf::from)
+        .unwrap_or_else(storage::default_data_dir);
     let candidate3 = data_dir.join("bin").join("sing-box.exe");
     if candidate3.exists() {
         return Some(candidate3);
@@ -201,7 +204,9 @@ pub async fn check_config(exe: &Path, config_path: &Path, work_dir: &Path) -> Re
             .map(str::trim)
             .find(|l| !l.is_empty())
             .unwrap_or("unknown validation error");
-        Err(Error::CoreStartFailed(format!("config check failed: {first_err}")))
+        Err(Error::CoreStartFailed(format!(
+            "config check failed: {first_err}"
+        )))
     }
 }
 
@@ -216,6 +221,16 @@ pub struct CoreProcess {
 }
 
 impl CoreProcess {
+    pub fn id(&self) -> Option<u32> {
+        self.child.id()
+    }
+
+    pub fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>> {
+        self.child
+            .try_wait()
+            .map_err(|e| Error::CoreStartFailed(format!("could not poll sing-box: {e}")))
+    }
+
     pub fn spawn(
         exe: &Path,
         config_path: &Path,
@@ -291,12 +306,45 @@ impl CoreProcess {
         }
     }
 
+    /// A live child is not necessarily ready: rule-set downloads and inbound
+    /// initialization can fail after the process has started.
+    pub async fn confirm_ready(&mut self, clash_port: u16, clash_secret: &str) -> Result<()> {
+        let deadline = Instant::now() + STARTUP_TIMEOUT;
+        loop {
+            match self.child.try_wait() {
+                Ok(Some(status)) => {
+                    return Err(Error::CoreStartFailed(format!(
+                        "sing-box exited before ready with status {status}"
+                    )));
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    return Err(Error::CoreStartFailed(format!(
+                        "could not poll sing-box: {e}"
+                    )))
+                }
+            }
+            if crate::singbox::clash_api::probe(clash_port, clash_secret).await {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                return Err(Error::CoreStartFailed(
+                    "sing-box did not become ready in time; inspect Logs".into(),
+                ));
+            }
+            tokio::time::sleep(STARTUP_POLL).await;
+        }
+    }
+
     pub async fn stop(&mut self) -> Result<()> {
         self.stopping.store(true, Ordering::SeqCst);
         drop(self.child.stdin.take());
 
         let _ = self.child.start_kill();
-        if tokio::time::timeout(KILL_GRACE, self.child.wait()).await.is_err() {
+        if tokio::time::timeout(KILL_GRACE, self.child.wait())
+            .await
+            .is_err()
+        {
             let _ = self.child.kill().await;
         }
         Ok(())
@@ -331,8 +379,71 @@ mod tests {
     #[test]
     fn test_find_singbox_binary_finds_resources() {
         let found = find_singbox_binary(None);
-        assert!(found.is_some(), "sing-box binary should be found in resources");
+        assert!(
+            found.is_some(),
+            "sing-box binary should be found in resources"
+        );
         let path = found.unwrap();
         assert!(path.exists(), "found path {path:?} must exist");
+    }
+
+    #[tokio::test]
+    async fn test_core_lifecycle_on_local_ports() {
+        use crate::models::{ProxyKind, ProxyNode, Security, Settings, Transport, VlessConfig};
+        let bin = find_singbox_binary(None).expect("bundled sing-box.exe is required");
+        let free_port = || {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+        let mixed_port = free_port();
+        let clash_port = free_port();
+        let node = ProxyNode {
+            id: "local-lifecycle".into(),
+            name: "Local lifecycle".into(),
+            server: "127.0.0.1".into(),
+            port: 1,
+            last_ping_ms: None,
+            favorite: false,
+            total_up: 0,
+            total_down: 0,
+            raw: String::new(),
+            kind: ProxyKind::Vless(VlessConfig {
+                uuid: "11111111-2222-3333-4444-555555555555".into(),
+                flow: String::new(),
+                security: Security::None,
+                sni: String::new(),
+                fingerprint: String::new(),
+                public_key: String::new(),
+                short_id: String::new(),
+                insecure: false,
+                alpn: Vec::new(),
+                transport: Transport::Tcp,
+            }),
+        };
+        let mut settings = Settings::default();
+        settings.mixed_port = mixed_port;
+        let cfg = crate::singbox::config::generate(
+            &settings,
+            &[&node],
+            Some(&node.id),
+            clash_port,
+            "local-test-secret",
+        )
+        .unwrap();
+        let dir = std::env::temp_dir().join(format!("lightgui-lifecycle-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        std::fs::write(&path, serde_json::to_vec(&cfg.json).unwrap()).unwrap();
+        check_config(&bin, &path, &dir).await.unwrap();
+        let mut process =
+            CoreProcess::spawn(&bin, &path, &dir, Arc::new(LogBuffer::new())).unwrap();
+        process
+            .confirm_ready(clash_port, "local-test-secret")
+            .await
+            .unwrap();
+        assert!(crate::singbox::clash_api::probe(clash_port, "local-test-secret").await);
+        process.stop().await.unwrap();
+        assert!(process.try_wait().unwrap().is_some());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

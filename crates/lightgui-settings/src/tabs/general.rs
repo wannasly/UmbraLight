@@ -1,15 +1,15 @@
-use windows_sys::Win32::Foundation::HWND;
-use windows_sys::Win32::Graphics::Gdi::HFONT;
+use crate::client::IpcClient;
+use crate::controls::{
+    create_button, create_checkbox, create_edit, create_groupbox, create_label, get_checkbox,
+    set_checkbox, set_text, set_visible,
+};
+use crate::tabs::Tab;
 use lightgui_core::hwid::hwid;
 use lightgui_core::models::ConnStatus;
 use lightgui_core::net::autostart::set_autostart;
 use lightgui_core::singbox::process::find_singbox_binary;
-use crate::client::IpcClient;
-use crate::controls::{
-    create_button, create_checkbox, create_edit, create_groupbox, create_label,
-    get_checkbox, set_checkbox, set_text, set_visible,
-};
-use crate::tabs::Tab;
+use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::Graphics::Gdi::HFONT;
 
 const IDC_GEN_AUTOSTART: usize = 901;
 const IDC_GEN_AUTOCONNECT: usize = 902;
@@ -31,19 +31,54 @@ impl GeneralTab {
         let title = create_label(parent, "General & System Settings", 190, 15, 300, 20, font);
         controls.push(title);
 
-        let startup_group = create_groupbox(parent, "Startup & Automation", 190, 45, 590, 120, font);
+        let startup_group =
+            create_groupbox(parent, "Startup & Automation", 190, 45, 590, 120, font);
         controls.push(startup_group);
 
-        let chk_autostart_hwnd = create_checkbox(parent, "Start LightGUI on Windows logon", IDC_GEN_AUTOSTART, 210, 75, 400, 22, font);
+        let chk_autostart_hwnd = create_checkbox(
+            parent,
+            "Start LightGUI on Windows logon",
+            IDC_GEN_AUTOSTART,
+            210,
+            75,
+            400,
+            22,
+            font,
+        );
         controls.push(chk_autostart_hwnd);
 
-        let chk_autoconnect_hwnd = create_checkbox(parent, "Connect automatically on startup", IDC_GEN_AUTOCONNECT, 210, 108, 400, 22, font);
+        let chk_autoconnect_hwnd = create_checkbox(
+            parent,
+            "Connect automatically on startup",
+            IDC_GEN_AUTOCONNECT,
+            210,
+            108,
+            400,
+            22,
+            font,
+        );
         controls.push(chk_autoconnect_hwnd);
 
-        let hwid_group = create_groupbox(parent, "Device Identity (Hardware ID)", 190, 180, 590, 100, font);
+        let hwid_group = create_groupbox(
+            parent,
+            "Device Identity (Hardware ID)",
+            190,
+            180,
+            590,
+            100,
+            font,
+        );
         controls.push(hwid_group);
 
-        let hwid_desc = create_label(parent, "Hardware ID sent to subscription provider for device authorization:", 210, 208, 540, 20, font);
+        let hwid_desc = create_label(
+            parent,
+            "Hardware ID sent to subscription provider for device authorization:",
+            210,
+            208,
+            540,
+            20,
+            font,
+        );
         controls.push(hwid_desc);
 
         let hwid_str = hwid(None);
@@ -56,7 +91,16 @@ impl GeneralTab {
         let singbox_status_label_hwnd = create_label(parent, "", 210, 325, 540, 55, font);
         controls.push(singbox_status_label_hwnd);
 
-        let save_btn = create_button(parent, "Apply & Save General Settings", IDC_GEN_SAVE_BTN, 190, 410, 220, 32, font);
+        let save_btn = create_button(
+            parent,
+            "Apply & Save General Settings",
+            IDC_GEN_SAVE_BTN,
+            190,
+            410,
+            220,
+            32,
+            font,
+        );
         controls.push(save_btn);
 
         let status_label_hwnd = create_label(parent, "", 190, 455, 590, 30, font);
@@ -98,7 +142,10 @@ impl GeneralTab {
 
             set_text(
                 self.singbox_status_label_hwnd,
-                &format!("Connection Status: {}\r\nCore Engine: {}", conn_status_str, bin_status_str),
+                &format!(
+                    "Connection Status: {}\r\nCore Engine: {}",
+                    conn_status_str, bin_status_str
+                ),
             );
         }
     }
@@ -112,14 +159,20 @@ impl GeneralTab {
             settings.autostart = autostart;
             settings.connect_on_startup = autoconnect;
 
-            if let Ok(curr_exe) = std::env::current_exe() {
-                let exe_str = curr_exe.to_string_lossy();
-                let _ = set_autostart("LightGUI", &exe_str, autostart);
-            }
+            let result = std::env::current_exe()
+                .map_err(lightgui_core::error::Error::Io)
+                .and_then(|exe| {
+                    let tray_exe = exe.with_file_name("lightgui.exe");
+                    set_autostart("LightGUI", &tray_exe.to_string_lossy(), autostart)
+                })
+                .and_then(|_| client.save_settings(&settings));
 
-            match client.save_settings(&settings) {
+            match result {
                 Ok(()) => {
-                    set_text(self.status_label_hwnd, "General settings saved successfully.");
+                    set_text(
+                        self.status_label_hwnd,
+                        "General settings saved successfully.",
+                    );
                 }
                 Err(e) => {
                     set_text(self.status_label_hwnd, &format!("Failed to save: {e}"));

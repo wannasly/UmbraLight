@@ -1,13 +1,14 @@
-﻿pub mod hysteria2;
+pub mod hysteria2;
 pub mod shadowsocks;
 pub mod trojan;
+pub mod v2ray_json;
 pub mod vless;
 pub mod vmess;
 
-use std::collections::HashSet;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE};
 use base64::Engine;
 use percent_encoding::percent_decode_str;
+use std::collections::HashSet;
 
 use crate::error::{Error, Result};
 use crate::models::ServerEntry;

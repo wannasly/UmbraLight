@@ -1,19 +1,29 @@
-use std::ptr::null_mut;
 use crate::error::{Error, Result};
 use crate::models::ProxyBackup;
+use std::ptr::null_mut;
 
 const INTERNET_SETTINGS: &str = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
 
 #[cfg(windows)]
 pub fn read_current() -> Result<ProxyBackup> {
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY_CURRENT_USER, KEY_READ, REG_DWORD, REG_SZ,
+        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY_CURRENT_USER, KEY_READ, REG_DWORD,
+        REG_SZ,
     };
 
-    let subkey_wide: Vec<u16> = INTERNET_SETTINGS.encode_utf16().chain(std::iter::once(0)).collect();
+    let subkey_wide: Vec<u16> = INTERNET_SETTINGS
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
     let mut hkey = null_mut();
     let status = unsafe {
-        RegOpenKeyExW(HKEY_CURRENT_USER, subkey_wide.as_ptr(), 0, KEY_READ, &mut hkey)
+        RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            subkey_wide.as_ptr(),
+            0,
+            KEY_READ,
+            &mut hkey,
+        )
     };
     if status != 0 || hkey.is_null() {
         return Ok(ProxyBackup::default());
@@ -70,9 +80,8 @@ pub fn read_current() -> Result<ProxyBackup> {
             )
         };
         if status == 0 {
-            let u16_slice: &[u16] = unsafe {
-                std::slice::from_raw_parts(buf.as_ptr() as *const u16, buf.len() / 2)
-            };
+            let u16_slice: &[u16] =
+                unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u16, buf.len() / 2) };
             let s = String::from_utf16_lossy(u16_slice);
             Some(s.trim_matches('\0').to_string())
         } else {
@@ -99,18 +108,30 @@ pub fn read_current() -> Result<ProxyBackup> {
 }
 
 #[cfg(windows)]
-pub fn apply_proxy(port: u16) -> Result<()> {
+pub fn apply_proxy(port: u16, bypass_list: &str) -> Result<()> {
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegOpenKeyExW, RegSetValueExW, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_DWORD, REG_SZ,
+        RegCloseKey, RegOpenKeyExW, RegSetValueExW, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_DWORD,
+        REG_SZ,
     };
 
-    let subkey_wide: Vec<u16> = INTERNET_SETTINGS.encode_utf16().chain(std::iter::once(0)).collect();
+    let subkey_wide: Vec<u16> = INTERNET_SETTINGS
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
     let mut hkey = null_mut();
     let status = unsafe {
-        RegOpenKeyExW(HKEY_CURRENT_USER, subkey_wide.as_ptr(), 0, KEY_SET_VALUE, &mut hkey)
+        RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            subkey_wide.as_ptr(),
+            0,
+            KEY_SET_VALUE,
+            &mut hkey,
+        )
     };
     if status != 0 || hkey.is_null() {
-        return Err(Error::Internal(format!("Failed to open registry key: status {status}")));
+        return Err(Error::Internal(format!(
+            "Failed to open registry key: status {status}"
+        )));
     }
 
     let set_dword = |name: &str, val: u32| unsafe {
@@ -140,13 +161,18 @@ pub fn apply_proxy(port: u16) -> Result<()> {
 
     let p_enable = 1u32;
     let p_server = format!("127.0.0.1:{port}");
-    let p_override = default_bypass_list();
+    let p_override = bypass_list;
 
-    unsafe {
-        set_dword("ProxyEnable", p_enable);
-        set_sz("ProxyServer", &p_server);
-        set_sz("ProxyOverride", &p_override);
-        RegCloseKey(hkey);
+    let results = [
+        set_dword("ProxyEnable", p_enable),
+        set_sz("ProxyServer", &p_server),
+        set_sz("ProxyOverride", p_override),
+    ];
+    unsafe { RegCloseKey(hkey) };
+    if let Some(status) = results.into_iter().find(|status| *status != 0) {
+        return Err(Error::Internal(format!(
+            "Failed to set Windows proxy: status {status}"
+        )));
     }
 
     notify_wininet();
@@ -154,23 +180,35 @@ pub fn apply_proxy(port: u16) -> Result<()> {
 }
 
 #[cfg(not(windows))]
-pub fn apply_proxy(_port: u16) -> Result<()> {
+pub fn apply_proxy(_port: u16, _bypass_list: &str) -> Result<()> {
     Ok(())
 }
 
 #[cfg(windows)]
 pub fn restore_proxy(backup: &ProxyBackup) -> Result<()> {
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegSetValueExW, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_DWORD, REG_SZ,
+        RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegSetValueExW, HKEY_CURRENT_USER,
+        KEY_SET_VALUE, REG_DWORD, REG_SZ,
     };
 
-    let subkey_wide: Vec<u16> = INTERNET_SETTINGS.encode_utf16().chain(std::iter::once(0)).collect();
+    let subkey_wide: Vec<u16> = INTERNET_SETTINGS
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
     let mut hkey = null_mut();
     let status = unsafe {
-        RegOpenKeyExW(HKEY_CURRENT_USER, subkey_wide.as_ptr(), 0, KEY_SET_VALUE, &mut hkey)
+        RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            subkey_wide.as_ptr(),
+            0,
+            KEY_SET_VALUE,
+            &mut hkey,
+        )
     };
     if status != 0 || hkey.is_null() {
-        return Err(Error::Internal(format!("Failed to open registry key: status {status}")));
+        return Err(Error::Internal(format!(
+            "Failed to open registry key: status {status}"
+        )));
     }
 
     let set_dword = |name: &str, val: u32| unsafe {
@@ -203,17 +241,23 @@ pub fn restore_proxy(backup: &ProxyBackup) -> Result<()> {
         RegDeleteValueW(hkey, name_w.as_ptr())
     };
 
-    unsafe {
-        set_dword("ProxyEnable", backup.enable);
-        match &backup.server {
-            Some(s) => { set_sz("ProxyServer", s); },
-            None => { del_val("ProxyServer"); }
-        }
-        match &backup.bypass_list {
-            Some(b) => { set_sz("ProxyOverride", b); },
-            None => { del_val("ProxyOverride"); }
-        }
-        RegCloseKey(hkey);
+    let enable_status = set_dword("ProxyEnable", backup.enable);
+    let server_status = match &backup.server {
+        Some(s) => set_sz("ProxyServer", s),
+        None => del_val("ProxyServer"),
+    };
+    let bypass_status = match &backup.bypass_list {
+        Some(b) => set_sz("ProxyOverride", b),
+        None => del_val("ProxyOverride"),
+    };
+    unsafe { RegCloseKey(hkey) };
+    if let Some(status) = [enable_status, server_status, bypass_status]
+        .into_iter()
+        .find(|status| *status != 0 && *status != 2)
+    {
+        return Err(Error::Internal(format!(
+            "Failed to restore Windows proxy: status {status}"
+        )));
     }
 
     notify_wininet();

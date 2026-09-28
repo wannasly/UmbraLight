@@ -88,7 +88,13 @@ pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
 }
 
 pub fn load_settings(data_dir: &Path) -> Settings {
-    read_json(&settings_path(data_dir))
+    let mut settings: Settings = read_json(&settings_path(data_dir));
+    if settings.sub_user_agent.trim().is_empty()
+        || settings.sub_user_agent == "v2rayN/7.13 lightgui/1.0"
+    {
+        settings.sub_user_agent = crate::subscription::DEFAULT_SUB_USER_AGENT.into();
+    }
+    settings
 }
 
 pub fn save_settings(data_dir: &Path, settings: &Settings) -> Result<()> {
@@ -108,7 +114,8 @@ mod tests {
     use super::*;
 
     fn scratch_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("lightgui-storage-test-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("lightgui-storage-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         dir
     }

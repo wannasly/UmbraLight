@@ -1,11 +1,11 @@
-﻿use std::collections::{HashMap, HashSet};
 use serde_json::{json, Map, Value};
+use std::collections::{HashMap, HashSet};
 
 use crate::error::Result;
 use crate::models::{
-    CoreMode, DomainMatcher, ProcessMatcher, ProxyKind, ProxyNode, RouteTarget,
-    RuleAction, RuleType, Security, ServerEntry, Settings, Transport,
-    VlessConfig, Hysteria2Config, VMessConfig, TrojanConfig, ShadowsocksConfig,
+    CoreMode, DomainMatcher, Hysteria2Config, ProcessMatcher, ProxyKind, ProxyNode, RouteTarget,
+    RuleAction, RuleType, Security, ServerEntry, Settings, ShadowsocksConfig, Transport,
+    TrojanConfig, VMessConfig, VlessConfig,
 };
 
 const RESERVED_TAGS: [&str; 4] = ["proxy", "auto", "direct", "block"];
@@ -32,7 +32,9 @@ pub fn generate(
         .map(|(s, t)| (s.id.clone(), t.clone()))
         .collect();
 
-    let selected_tag = if let Some(sid) = selected_id {
+    let selected_tag = if selected_id == Some("auto") {
+        "auto".to_string()
+    } else if let Some(sid) = selected_id {
         servers
             .iter()
             .position(|s| s.id == sid)
@@ -614,7 +616,8 @@ mod tests {
             return;
         };
 
-        let temp_dir = std::env::temp_dir().join(format!("lightgui-check-test-{}", uuid::Uuid::new_v4()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("lightgui-check-test-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::create_dir_all(&temp_dir);
 
         let settings = Settings::default();
@@ -643,23 +646,103 @@ mod tests {
         };
 
         // 1. Test Mixed Mode Config
-        let cfg_mixed = generate(&settings, &[&node], Some("node-check"), 9191, "test-token").unwrap();
+        let cfg_mixed =
+            generate(&settings, &[&node], Some("node-check"), 9191, "test-token").unwrap();
         let path_mixed = temp_dir.join("mixed.json");
-        std::fs::write(&path_mixed, serde_json::to_vec_pretty(&cfg_mixed.json).unwrap()).unwrap();
+        std::fs::write(
+            &path_mixed,
+            serde_json::to_vec_pretty(&cfg_mixed.json).unwrap(),
+        )
+        .unwrap();
 
-        let check_res_mixed = crate::singbox::process::check_config(&bin, &path_mixed, &temp_dir).await;
-        assert!(check_res_mixed.is_ok(), "mixed config validation failed: {:?}", check_res_mixed.err());
+        let check_res_mixed =
+            crate::singbox::process::check_config(&bin, &path_mixed, &temp_dir).await;
+        assert!(
+            check_res_mixed.is_ok(),
+            "mixed config validation failed: {:?}",
+            check_res_mixed.err()
+        );
 
         // 2. Test TUN Mode Config
         let mut settings_tun = settings.clone();
         settings_tun.mode = CoreMode::Tun;
-        let cfg_tun = generate(&settings_tun, &[&node], Some("node-check"), 9192, "test-token").unwrap();
+        let cfg_tun = generate(
+            &settings_tun,
+            &[&node],
+            Some("node-check"),
+            9192,
+            "test-token",
+        )
+        .unwrap();
         let path_tun = temp_dir.join("tun.json");
         std::fs::write(&path_tun, serde_json::to_vec_pretty(&cfg_tun.json).unwrap()).unwrap();
 
         let check_res_tun = crate::singbox::process::check_config(&bin, &path_tun, &temp_dir).await;
-        assert!(check_res_tun.is_ok(), "tun config validation failed: {:?}", check_res_tun.err());
+        assert!(
+            check_res_tun.is_ok(),
+            "tun config validation failed: {:?}",
+            check_res_tun.err()
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_all_protocol_outbounds_with_singbox_check() {
+        let bin = find_singbox_binary(None).expect("bundled sing-box.exe is required");
+        let uris = [
+            "vless://b831381d-6324-4d53-ad4f-8cda48b30811@example.com:443?security=reality&sni=yahoo.com&fp=firefox&pbk=SbVKOEMjK0sIlbwg4akyBg5mL5KZwwB-ed4eEE7YnRc&sid=6ba85179&flow=xtls-rprx-vision&type=tcp#Reality",
+            "hysteria2://my_pass@hy2.example.com:8443?sni=sni.example.com&insecure=1&obfs=salamander&obfs-password=obfs_pass#HY2",
+            "trojan://secret_pwd@trojan.example.com:443?sni=trojan.example.com&alpn=h2,http/1.1#Trojan",
+            "ss://YWVzLTI1Ni1nY206c2VjcmV0X3Bhc3N3b3Jk@ss.example.com:8388#SS",
+        ];
+        let mut nodes: Vec<ProxyNode> = uris
+            .iter()
+            .map(|uri| crate::parser::parse_any(uri).unwrap())
+            .collect();
+        nodes.push(ProxyNode {
+            id: "vmess-check".into(),
+            name: "VMess".into(),
+            server: "vmess.example.com".into(),
+            port: 443,
+            last_ping_ms: None,
+            favorite: false,
+            total_up: 0,
+            total_down: 0,
+            raw: String::new(),
+            kind: ProxyKind::VMess(crate::models::VMessConfig {
+                uuid: "12345678-1234-1234-1234-123456789abc".into(),
+                alter_id: 0,
+                security: "auto".into(),
+                transport: Transport::Ws {
+                    path: "/ws".into(),
+                    host: "cdn.example.com".into(),
+                },
+                tls: true,
+                sni: "vmess.example.com".into(),
+                insecure: false,
+                alpn: Vec::new(),
+            }),
+        });
+        let dir =
+            std::env::temp_dir().join(format!("lightgui-protocol-check-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let refs: Vec<&ProxyNode> = nodes.iter().collect();
+        let cfg = generate(
+            &Settings::default(),
+            &refs,
+            Some(&nodes[0].id),
+            9193,
+            "test-token",
+        )
+        .unwrap();
+        let path = dir.join("config.json");
+        std::fs::write(&path, serde_json::to_vec_pretty(&cfg.json).unwrap()).unwrap();
+        let result = crate::singbox::process::check_config(&bin, &path, &dir).await;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_ok(),
+            "all protocol config failed sing-box check: {result:?}"
+        );
     }
 }

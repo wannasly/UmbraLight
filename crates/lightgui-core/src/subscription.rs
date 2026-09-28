@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use base64::engine::general_purpose::{STANDARD, URL_SAFE};
@@ -9,8 +9,52 @@ use crate::error::{Error, Result};
 use crate::models::{ServerEntry, SubscriptionQuota};
 use crate::parser;
 
-pub const DEFAULT_SUB_USER_AGENT: &str = "v2rayN/7.13 lightgui/1.0";
+pub const DEFAULT_SUB_USER_AGENT: &str = "Happ/2.0.0 LightGUI/0.1.0";
 
+/// Preserve local server state across subscription refreshes and format changes.
+pub fn merge_servers(existing: &[ServerEntry], fetched: Vec<ServerEntry>) -> Vec<ServerEntry> {
+    let mut claimed = HashSet::new();
+    let mut seen = HashSet::new();
+    let mut merged = Vec::with_capacity(fetched.len());
+    for mut server in fetched {
+        if !seen.insert(server.raw.clone()) {
+            continue;
+        }
+        let match_index = existing
+            .iter()
+            .enumerate()
+            .find_map(|(i, old)| (!claimed.contains(&i) && old.raw == server.raw).then_some(i))
+            .or_else(|| {
+                existing.iter().enumerate().find_map(|(i, old)| {
+                    (!claimed.contains(&i) && endpoint_identity(old) == endpoint_identity(&server))
+                        .then_some(i)
+                })
+            });
+        if let Some(i) = match_index {
+            claimed.insert(i);
+            let old = &existing[i];
+            server.id = old.id.clone();
+            server.favorite = old.favorite;
+            server.last_ping_ms = old.last_ping_ms;
+            server.total_up = old.total_up;
+            server.total_down = old.total_down;
+        }
+        merged.push(server);
+    }
+    merged
+}
+
+fn endpoint_identity(s: &ServerEntry) -> String {
+    use crate::models::ProxyKind;
+    let credentials = match &s.kind {
+        ProxyKind::Vless(v) => format!("vless:{}:{:?}", v.uuid, v.transport),
+        ProxyKind::Hysteria2(h) => format!("hy2:{}", h.password),
+        ProxyKind::VMess(v) => format!("vmess:{}:{:?}", v.uuid, v.transport),
+        ProxyKind::Trojan(t) => format!("trojan:{}:{:?}", t.password, t.transport),
+        ProxyKind::Shadowsocks(ss) => format!("ss:{}:{}", ss.method, ss.password),
+    };
+    format!("{}:{}:{credentials}", s.server.to_ascii_lowercase(), s.port)
+}
 const H_HWID_NOT_SUPPORTED: &str = "x-hwid-not-supported";
 const H_HWID_MAX_DEVICES: &str = "x-hwid-max-devices-reached";
 const H_PROFILE_TITLE: &str = "profile-title";
@@ -106,8 +150,13 @@ pub async fn fetch_subscription(
     let web_page_url = header(H_WEB_PAGE_URL).filter(|u| is_http_url(u));
 
     let body = resp.text().await?;
-    let list = decode_body(&body)?;
-    let (parsed, errors) = parser::parse_links(&list);
+    let trimmed = body.trim_start_matches('\u{feff}').trim();
+    let (parsed, errors) = if trimmed.starts_with('[') {
+        parser::v2ray_json::parse_v2ray_json(trimmed)
+    } else {
+        let list = decode_body(&body)?;
+        parser::parse_links(&list)
+    };
     let servers = drop_placeholders(parsed, gate)?;
 
     Ok(FetchedSubscription {
@@ -148,10 +197,7 @@ fn is_http_url(value: &str) -> bool {
     value.starts_with("http://") || value.starts_with("https://")
 }
 
-fn drop_placeholders(
-    parsed: Vec<ServerEntry>,
-    gate: Option<Error>,
-) -> Result<Vec<ServerEntry>> {
+fn drop_placeholders(parsed: Vec<ServerEntry>, gate: Option<Error>) -> Result<Vec<ServerEntry>> {
     let had_any = !parsed.is_empty();
     let servers: Vec<ServerEntry> = parsed.into_iter().filter(|s| !is_placeholder(s)).collect();
     if !servers.is_empty() {
@@ -296,5 +342,60 @@ mod tests {
         let title_b64 = "base64:0JzQvtGPINCf0L7QtNC/0LjRgdC60LA=";
         let title = decode_header_text(title_b64).unwrap();
         assert_eq!(title, "Моя Подписка");
+    }
+
+    #[test]
+    fn refresh_preserves_local_state_and_distinct_nodes() {
+        let old_uri =
+            "vless://11111111-2222-3333-4444-555555555555@example.com:443?security=none#Old";
+        let new_uri =
+            "vless://11111111-2222-3333-4444-555555555555@example.com:443?security=none#New";
+        let (mut old, _) = parser::parse_links(old_uri);
+        old[0].favorite = true;
+        old[0].last_ping_ms = Some(42);
+        let original_id = old[0].id.clone();
+        let (mut fetched, _) = parser::parse_links(new_uri);
+        let mut second = fetched[0].clone();
+        second.id = "second".into();
+        second.raw.push_str("-backup");
+        fetched.push(second);
+        let merged = merge_servers(&old, fetched);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].id, original_id);
+        assert!(merged[0].favorite);
+        assert_eq!(merged[0].last_ping_ms, Some(42));
+        assert_eq!(merged[1].id, "second");
+    }
+
+    #[tokio::test]
+    async fn fetches_v2ray_json_subscription_over_http() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let body = serde_json::json!([{
+            "remarks": "JSON node",
+            "outbounds": [{
+                "tag": "proxy", "protocol": "vless",
+                "settings": {"vnext": [{"address": "example.com", "port": 443,
+                    "users": [{"id": "11111111-2222-3333-4444-555555555555"}]}]},
+                "streamSettings": {"network": "tcp", "security": "none"}
+            }]
+        }])
+        .to_string();
+        let serve = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 2048];
+            let size = socket.read(&mut request).await.unwrap();
+            let request = String::from_utf8_lossy(&request[..size]).to_string();
+            let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+            socket.write_all(response.as_bytes()).await.unwrap();
+            request
+        });
+        let fetched = fetch_subscription(&format!("http://127.0.0.1:{port}/sub"), None, None)
+            .await
+            .unwrap();
+        assert_eq!(fetched.servers.len(), 1);
+        assert_eq!(fetched.servers[0].name, "JSON node");
+        assert!(serve.await.unwrap().contains(DEFAULT_SUB_USER_AGENT));
     }
 }

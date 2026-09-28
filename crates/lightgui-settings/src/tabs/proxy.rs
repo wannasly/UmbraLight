@@ -1,12 +1,12 @@
-use windows_sys::Win32::Foundation::HWND;
-use windows_sys::Win32::Graphics::Gdi::HFONT;
-use lightgui_core::models::CoreMode;
 use crate::client::IpcClient;
 use crate::controls::{
     create_button, create_checkbox, create_edit, create_groupbox, create_label,
     create_multiline_edit, get_checkbox, get_text, set_checkbox, set_text, set_visible,
 };
 use crate::tabs::Tab;
+use lightgui_core::models::CoreMode;
+use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::Graphics::Gdi::HFONT;
 
 const IDC_PROXY_ENABLE: usize = 701;
 const IDC_PROXY_PORT_EDIT: usize = 702;
@@ -33,22 +33,66 @@ impl ProxyTab {
         let group_hwnd = create_groupbox(parent, "Windows System Proxy", 190, 45, 590, 360, font);
         controls.push(group_hwnd);
 
-        let chk_enable_hwnd = create_checkbox(parent, "Enable System Proxy (sets Windows wininet proxy)", IDC_PROXY_ENABLE, 210, 75, 420, 22, font);
+        let chk_enable_hwnd = create_checkbox(
+            parent,
+            "Use System Proxy mode (off = TUN mode)",
+            IDC_PROXY_ENABLE,
+            210,
+            75,
+            420,
+            22,
+            font,
+        );
         controls.push(chk_enable_hwnd);
 
-        let port_label = create_label(parent, "Mixed (HTTP / SOCKS5) Port:", 210, 115, 200, 20, font);
+        let port_label = create_label(
+            parent,
+            "Mixed (HTTP / SOCKS5) Port:",
+            210,
+            115,
+            200,
+            20,
+            font,
+        );
         controls.push(port_label);
 
-        let port_edit_hwnd = create_edit(parent, "2080", IDC_PROXY_PORT_EDIT, 415, 112, 120, 24, font);
+        let port_edit_hwnd =
+            create_edit(parent, "2080", IDC_PROXY_PORT_EDIT, 415, 112, 120, 24, font);
         controls.push(port_edit_hwnd);
 
-        let bypass_label = create_label(parent, "Proxy Bypass List (semicolon separated domains and IP ranges):", 210, 155, 500, 20, font);
+        let bypass_label = create_label(
+            parent,
+            "Proxy Bypass List (semicolon separated domains and IP ranges):",
+            210,
+            155,
+            500,
+            20,
+            font,
+        );
         controls.push(bypass_label);
 
-        let bypass_edit_hwnd = create_multiline_edit(parent, DEFAULT_BYPASS, IDC_PROXY_BYPASS_EDIT, 210, 180, 550, 180, font);
+        let bypass_edit_hwnd = create_multiline_edit(
+            parent,
+            DEFAULT_BYPASS,
+            IDC_PROXY_BYPASS_EDIT,
+            210,
+            180,
+            550,
+            180,
+            font,
+        );
         controls.push(bypass_edit_hwnd);
 
-        let save_btn = create_button(parent, "Apply & Save Proxy Settings", IDC_PROXY_SAVE_BTN, 190, 420, 210, 32, font);
+        let save_btn = create_button(
+            parent,
+            "Apply & Save Proxy Settings",
+            IDC_PROXY_SAVE_BTN,
+            190,
+            420,
+            210,
+            32,
+            font,
+        );
         controls.push(save_btn);
 
         let status_label_hwnd = create_label(parent, "", 190, 465, 590, 30, font);
@@ -70,8 +114,7 @@ impl ProxyTab {
             set_checkbox(self.chk_enable_hwnd, settings.mode == CoreMode::SystemProxy);
             set_text(self.port_edit_hwnd, &settings.mixed_port.to_string());
 
-            let bypass = settings.proxy_backup.bypass_list.as_deref().unwrap_or(DEFAULT_BYPASS);
-            set_text(self.bypass_edit_hwnd, bypass);
+            set_text(self.bypass_edit_hwnd, &settings.proxy_bypass_list);
         }
     }
 
@@ -86,10 +129,10 @@ impl ProxyTab {
             if enable {
                 settings.mode = CoreMode::SystemProxy;
             } else if settings.mode == CoreMode::SystemProxy {
-                // If unchecking system proxy, mode could be Tun or disabled
+                settings.mode = CoreMode::Tun;
             }
             settings.mixed_port = port;
-            settings.proxy_backup.bypass_list = Some(bypass.trim().to_string());
+            settings.proxy_bypass_list = bypass.trim().to_string();
 
             match client.save_settings(&settings) {
                 Ok(()) => {

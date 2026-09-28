@@ -1,8 +1,12 @@
-use std::path::{Path, PathBuf};
 use lightgui_core::error::{Error, Result};
 use lightgui_core::ipc::protocol::{IpcRequest, IpcResponse, StatusInfo, DEFAULT_PIPE_NAME};
-use lightgui_core::models::{ConnectionState, LogLine, ProfileStore, RoutingMode, RunningProcess, Settings};
-use lightgui_core::storage::{default_data_dir, load_profiles, load_settings, save_profiles, save_settings};
+use lightgui_core::models::{
+    ConnectionState, LogLine, ProfileStore, RoutingMode, RunningProcess, Settings,
+};
+use lightgui_core::storage::{
+    default_data_dir, load_profiles, load_settings, save_profiles, save_settings,
+};
+use std::path::{Path, PathBuf};
 
 pub struct IpcClient {
     pipe_name: String,
@@ -39,7 +43,17 @@ impl IpcClient {
     }
 
     pub fn save_settings(&self, settings: &Settings) -> Result<()> {
-        save_settings(&self.data_dir, settings)
+        match self.send_ipc(&IpcRequest::SaveSettings {
+            settings: settings.clone(),
+        }) {
+            Ok(IpcResponse::Success) => Ok(()),
+            Ok(IpcResponse::Error(msg)) => Err(Error::Internal(msg)),
+            Ok(_) => Err(Error::Internal("unexpected settings response".into())),
+            Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                save_settings(&self.data_dir, settings)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub fn load_profiles(&self) -> Result<ProfileStore> {
@@ -47,7 +61,17 @@ impl IpcClient {
     }
 
     pub fn save_profiles(&self, profiles: &ProfileStore) -> Result<()> {
-        save_profiles(&self.data_dir, profiles)
+        match self.send_ipc(&IpcRequest::SaveProfiles {
+            profiles: profiles.clone(),
+        }) {
+            Ok(IpcResponse::Success) => Ok(()),
+            Ok(IpcResponse::Error(msg)) => Err(Error::Internal(msg)),
+            Ok(_) => Err(Error::Internal("unexpected profiles response".into())),
+            Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                save_profiles(&self.data_dir, profiles)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     fn send_ipc(&self, req: &IpcRequest) -> Result<IpcResponse> {
@@ -83,9 +107,10 @@ impl IpcClient {
         // Fallback: direct local storage
         let settings = self.load_settings();
         let profiles = self.load_profiles().unwrap_or_default();
-        let active_server_name = settings.selected_server_id.as_deref().and_then(|id| {
-            profiles.find_server(id).map(|s| s.name.clone())
-        });
+        let active_server_name = settings
+            .selected_server_id
+            .as_deref()
+            .and_then(|id| profiles.find_server(id).map(|s| s.name.clone()));
 
         Ok(StatusInfo {
             state: ConnectionState::disconnected(settings.mode),
@@ -105,13 +130,7 @@ impl IpcClient {
             }
         }
 
-        // Fallback: update selected server in settings
-        if let Some(id) = server_id {
-            let mut settings = self.load_settings();
-            settings.selected_server_id = Some(id);
-            self.save_settings(&settings)?;
-        }
-        Ok(())
+        Err(Error::Internal("LightGUI tray is not running".into()))
     }
 
     pub fn disconnect(&self) -> Result<()> {
@@ -122,7 +141,7 @@ impl IpcClient {
                 _ => {}
             }
         }
-        Ok(())
+        Err(Error::Internal("LightGUI tray is not running".into()))
     }
 
     pub fn switch_server(&self, server_id: &str) -> Result<()> {
@@ -136,11 +155,7 @@ impl IpcClient {
             }
         }
 
-        // Fallback: update selected server in settings
-        let mut settings = self.load_settings();
-        settings.selected_server_id = Some(server_id.to_string());
-        self.save_settings(&settings)?;
-        Ok(())
+        Err(Error::Internal("LightGUI tray is not running".into()))
     }
 
     pub fn set_routing_mode(&self, mode: RoutingMode) -> Result<()> {
@@ -152,11 +167,7 @@ impl IpcClient {
             }
         }
 
-        // Fallback: update routing mode in settings
-        let mut settings = self.load_settings();
-        settings.routing_mode = mode;
-        self.save_settings(&settings)?;
-        Ok(())
+        Err(Error::Internal("LightGUI tray is not running".into()))
     }
 
     pub fn refresh_subscription(&self, sub_id: Option<String>) -> Result<()> {
@@ -168,10 +179,7 @@ impl IpcClient {
             }
         }
 
-        // Fallback: touches profiles
-        let profiles = self.load_profiles().unwrap_or_default();
-        let _ = self.save_profiles(&profiles);
-        Ok(())
+        Err(Error::Internal("LightGUI tray is not running".into()))
     }
 
     pub fn get_logs(&self) -> Result<Vec<LogLine>> {
@@ -202,7 +210,12 @@ impl IpcClient {
             if let Ok(mut addrs) = (srv.server.as_str(), srv.port).to_socket_addrs() {
                 if let Some(addr) = addrs.next() {
                     let started = std::time::Instant::now();
-                    if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(2)).is_ok() {
+                    if std::net::TcpStream::connect_timeout(
+                        &addr,
+                        std::time::Duration::from_secs(2),
+                    )
+                    .is_ok()
+                    {
                         let ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
                         return Ok(Some(ms));
                     }
@@ -261,30 +274,22 @@ mod tests {
             .unwrap()
             .as_nanos();
         let temp_dir = std::env::temp_dir().join(format!("lightgui-settings-test-{ts}"));
-        let client = IpcClient::with_pipe_and_dir(r"\\.\pipe\nonexistent_test_pipe", temp_dir.clone());
+        let client =
+            IpcClient::with_pipe_and_dir(r"\\.\pipe\nonexistent_test_pipe", temp_dir.clone());
 
         // Status fallback should return disconnected state without panic
         let status = client.get_status().unwrap();
-        assert_eq!(status.state.status, lightgui_core::models::ConnStatus::Disconnected);
+        assert_eq!(
+            status.state.status,
+            lightgui_core::models::ConnStatus::Disconnected
+        );
 
-        // Fallback switch_server updates settings
-        client.switch_server("srv-test-1").unwrap();
-        let settings = client.load_settings();
-        assert_eq!(settings.selected_server_id.as_deref(), Some("srv-test-1"));
-
-        // Fallback set_routing_mode updates settings
-        client.set_routing_mode(RoutingMode::GlobalProxy).unwrap();
-        let settings = client.load_settings();
-        assert_eq!(settings.routing_mode, RoutingMode::GlobalProxy);
-
-        // Fallback connect updates selected_server_id if Some
-        client.connect(Some("srv-test-2".into())).unwrap();
-        let settings = client.load_settings();
-        assert_eq!(settings.selected_server_id.as_deref(), Some("srv-test-2"));
-
-        // Fallback disconnect succeeds
-        assert!(client.disconnect().is_ok());
-
+        // Actions must not claim success when the tray is unavailable.
+        assert!(client.switch_server("srv-test-1").is_err());
+        assert!(client.set_routing_mode(RoutingMode::GlobalProxy).is_err());
+        assert!(client.connect(Some("srv-test-2".into())).is_err());
+        assert!(client.disconnect().is_err());
+        assert!(client.refresh_subscription(None).is_err());
         // Fallback get_logs returns empty vec
         let logs = client.get_logs().unwrap();
         assert!(logs.is_empty());
@@ -297,9 +302,6 @@ mod tests {
         let ping = client.ping_server("srv-nonexistent").unwrap();
         assert_eq!(ping, None);
 
-        // Fallback refresh_subscription succeeds
-        assert!(client.refresh_subscription(None).is_ok());
-
         let _ = std::fs::remove_dir_all(temp_dir);
     }
 
@@ -310,7 +312,8 @@ mod tests {
             .unwrap()
             .as_nanos();
         let temp_dir = std::env::temp_dir().join(format!("lightgui-settings-roundtrip-{ts}"));
-        let client = IpcClient::with_pipe_and_dir(r"\\.\pipe\nonexistent_test_pipe", temp_dir.clone());
+        let client =
+            IpcClient::with_pipe_and_dir(r"\\.\pipe\nonexistent_test_pipe", temp_dir.clone());
 
         let mut settings = client.load_settings();
         settings.mixed_port = 9090;
@@ -322,18 +325,20 @@ mod tests {
         assert_eq!(loaded.tun_mtu, 1500);
 
         let mut profiles = client.load_profiles().unwrap();
-        profiles.subscriptions.push(lightgui_core::models::Subscription {
-            id: "sub-test".into(),
-            name: "Test Subscription".into(),
-            url: "https://example.com/sub".into(),
-            updated_at: None,
-            quota: None,
-            auto_update_hours: 12,
-            support_url: None,
-            web_page_url: None,
-            panel_title: None,
-            servers: Vec::new(),
-        });
+        profiles
+            .subscriptions
+            .push(lightgui_core::models::Subscription {
+                id: "sub-test".into(),
+                name: "Test Subscription".into(),
+                url: "https://example.com/sub".into(),
+                updated_at: None,
+                quota: None,
+                auto_update_hours: 12,
+                support_url: None,
+                web_page_url: None,
+                panel_title: None,
+                servers: Vec::new(),
+            });
         client.save_profiles(&profiles).unwrap();
 
         let loaded_profiles = client.load_profiles().unwrap();
@@ -343,5 +348,3 @@ mod tests {
         let _ = std::fs::remove_dir_all(temp_dir);
     }
 }
-
-
