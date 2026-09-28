@@ -118,6 +118,8 @@ try {
 
     [LightGuiSmokeWin32]::PostMessageW($settingsWindow, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
     if (-not $settings.WaitForExit(3000)) { throw 'Settings failed to exit' }
+    $tray.Refresh()
+    Write-Output "Tray with Settings closed: RAM $([math]::Round($tray.WorkingSet64 / 1MB, 1)) MB, threads $($tray.Threads.Count), handles $($tray.HandleCount)"
     $trayWindow = [LightGuiSmokeWin32]::FindProcessWindow($tray.Id, 'lightgui_tray_wndclass')
     if ($trayWindow -eq [IntPtr]::Zero) { throw 'Tray window was not found' }
     [LightGuiSmokeWin32]::PostMessageW($trayWindow, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
