@@ -16,6 +16,8 @@ UmbraLight работает в системном трее, а окно наст
 
 Требуются Windows 10/11, [Rust и Cargo](https://rustup.rs/) с инструментами сборки MSVC.
 
+Для обычной установки скачайте `UmbraLight-1.0.0-windows-x64-setup.exe` из [релиза v1.0.0](https://github.com/wannasly/UmbraLight/releases/tag/v1.0.0). Установщик кладёт приложение, sing-box и Wintun в папку пользователя, создаёт ярлык в меню «Пуск» и предлагает ярлык на рабочем столе. Профили при удалении приложения сохраняются.
+
 ```powershell
 cargo build --release --workspace
 ```
@@ -27,7 +29,7 @@ cargo build --release --workspace
 | `UmbraLight.exe` | Основное приложение в трее |
 | `UmbraLight-settings.exe` | Окно настроек |
 
-Разместите оба файла рядом. Для работы прокси нужен совместимый `sing-box.exe`: положите его рядом с приложением или в папку `resources` проекта при запуске из исходников. Для режима TUN также может потребоваться `wintun.dll` и запуск с правами администратора.
+При сборке из исходников разместите оба файла рядом. Для работы прокси нужен совместимый `sing-box.exe`: положите его рядом с приложением или в папку `resources` проекта. Для режима TUN потребуется `wintun.dll` рядом с приложением и запуск с правами администратора.
 
 Запуск:
 
@@ -36,6 +38,16 @@ cargo build --release --workspace
 ```
 
 Настройки открываются через иконку в трее. Данные профилей и настроек хранятся в `%APPDATA%\lightgui` для совместимости с предыдущими версиями приложения. Не публикуйте файлы `profiles.json` и `settings.json`: они могут содержать адреса и параметры подписок.
+
+### Сборка установщика
+
+Установите [Inno Setup 6](https://jrsoftware.org/isinfo.php) и выполните:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-installer.ps1
+```
+
+Скрипт соберёт release-версию, загрузит проверенные SHA-256 архивы [sing-box 1.13.14](https://github.com/SagerNet/sing-box/releases/tag/v1.13.14) и [Wintun 0.14.1](https://www.wintun.net/), затем создаст `target/installer/UmbraLight-1.0.0-windows-x64-setup.exe`. Лицензии компонентов входят в установку.
 
 ## Проверка
 
