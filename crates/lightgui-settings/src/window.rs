@@ -1,13 +1,13 @@
 use std::sync::Arc;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows_sys::Win32::Graphics::Gdi::{COLOR_WINDOW, DeleteObject, HFONT, HGDIOBJ};
+use windows_sys::Win32::Graphics::Gdi::{DeleteObject, COLOR_WINDOW, HFONT, HGDIOBJ};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
     GetSystemMetrics, GetWindowLongPtrW, PostQuitMessage, RegisterClassExW, SetWindowLongPtrW,
-    ShowWindow, TranslateMessage, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW,
-    GWLP_USERDATA, MSG, SM_CXSCREEN, SM_CYSCREEN, SW_SHOW, WM_CLOSE, WM_COMMAND, WM_CREATE,
-    WM_DESTROY, WNDCLASSEXW, WS_CAPTION, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU,
+    ShowWindow, TranslateMessage, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, GWLP_USERDATA, MSG,
+    SM_CXSCREEN, SM_CYSCREEN, SW_SHOW, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_DESTROY, WNDCLASSEXW,
+    WS_CAPTION, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU,
 };
 
 use crate::client::IpcClient;
@@ -27,8 +27,8 @@ use crate::tabs::subscriptions::SubscriptionsTab;
 use crate::tabs::tun::TunTab;
 use crate::tabs::Tab;
 
-pub const WINDOW_CLASS_NAME: &str = "lightgui_settings_wndclass";
-pub const WINDOW_TITLE: &str = "LightGUI Settings";
+pub const WINDOW_CLASS_NAME: &str = "umbralight_settings_wndclass";
+pub const WINDOW_TITLE: &str = "UmbraLight 1.0.0 — Settings";
 const IDC_NAV_LIST: usize = 101;
 
 pub struct MainWindow {
@@ -64,7 +64,10 @@ unsafe extern "system" fn window_proc(
                 if id == IDC_NAV_LIST && code == 1 {
                     // LBN_SELCHANGE
                     let sel = get_listbox_selected(win.nav_list_hwnd);
-                    if sel >= 0 && (sel as usize) < win.tabs.len() && (sel as usize) != win.current_tab_idx {
+                    if sel >= 0
+                        && (sel as usize) < win.tabs.len()
+                        && (sel as usize) != win.current_tab_idx
+                    {
                         win.switch_to_tab(sel as usize);
                     }
                 } else if win.current_tab_idx < win.tabs.len() {

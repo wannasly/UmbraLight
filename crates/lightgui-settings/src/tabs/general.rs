@@ -37,7 +37,7 @@ impl GeneralTab {
 
         let chk_autostart_hwnd = create_checkbox(
             parent,
-            "Start LightGUI on Windows logon",
+            "Start UmbraLight on Windows logon",
             IDC_GEN_AUTOSTART,
             210,
             75,
@@ -162,8 +162,8 @@ impl GeneralTab {
             let result = std::env::current_exe()
                 .map_err(lightgui_core::error::Error::Io)
                 .and_then(|exe| {
-                    let tray_exe = exe.with_file_name("lightgui.exe");
-                    set_autostart("LightGUI", &tray_exe.to_string_lossy(), autostart)
+                    let tray_exe = exe.with_file_name("UmbraLight.exe");
+                    set_autostart("UmbraLight", &tray_exe.to_string_lossy(), autostart)
                 })
                 .and_then(|_| client.save_settings(&settings));
 

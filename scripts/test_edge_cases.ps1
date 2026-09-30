@@ -1,13 +1,13 @@
 Write-Host "=========================================" -ForegroundColor Cyan
-Write-Host "       LightGUI Edge Cases Test          " -ForegroundColor Cyan
+Write-Host "       UmbraLight Edge Cases Test          " -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 
 # Cleanup
-Get-Process -Name "lightgui", "lightgui-settings" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "UmbraLight", "UmbraLight-settings" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 500
 
-$trayExe = (Resolve-Path "target/release/lightgui.exe").Path
-$settingsExe = (Resolve-Path "target/release/lightgui-settings.exe").Path
+$trayExe = (Resolve-Path "target/release/UmbraLight.exe").Path
+$settingsExe = (Resolve-Path "target/release/UmbraLight-settings.exe").Path
 
 # Win32 definitions
 $win32Def = @"
@@ -53,12 +53,12 @@ Add-Type -TypeDefinition $win32Def -ErrorAction SilentlyContinue
 # ----------------------------------------------------------------------------
 # 1. Standalone Settings Fallback Mode (Daemon NOT Running)
 # ----------------------------------------------------------------------------
-Write-Host "`n[Edge Case 1] Launching lightgui-settings.exe in Standalone Fallback Mode (No Daemon)..." -ForegroundColor Yellow
+Write-Host "`n[Edge Case 1] Launching UmbraLight-settings.exe in Standalone Fallback Mode (No Daemon)..." -ForegroundColor Yellow
 
 $settingsProc = Start-Process -FilePath $settingsExe -PassThru
 Start-Sleep -Milliseconds 1000
 
-$settingsHwnd = [WinHelperEdge]::FindProcessWindow($settingsProc.Id, "lightgui_settings_wndclass")
+$settingsHwnd = [WinHelperEdge]::FindProcessWindow($settingsProc.Id, "umbralight_settings_wndclass")
 if ($settingsHwnd -ne [IntPtr]::Zero) {
     Write-Host "  PASS: Settings window created successfully without daemon! HWND: $settingsHwnd" -ForegroundColor Green
 } else {
@@ -81,9 +81,9 @@ if ($settingsProc.HasExited) {
 }
 
 # ----------------------------------------------------------------------------
-# 2. Single-Instance Mutex for lightgui.exe
+# 2. Single-Instance Mutex for UmbraLight.exe
 # ----------------------------------------------------------------------------
-Write-Host "`n[Edge Case 2] Testing Single-Instance Mutex for lightgui.exe..." -ForegroundColor Yellow
+Write-Host "`n[Edge Case 2] Testing Single-Instance Mutex for UmbraLight.exe..." -ForegroundColor Yellow
 
 $inst1 = Start-Process -FilePath $trayExe -PassThru
 Start-Sleep -Milliseconds 1000
@@ -103,14 +103,14 @@ if ($inst2.HasExited) {
 }
 
 # Also note: Instance 2 spawns settings app when duplicate detected
-$spawnedSettings = Get-Process -Name "lightgui-settings" -ErrorAction SilentlyContinue
+$spawnedSettings = Get-Process -Name "UmbraLight-settings" -ErrorAction SilentlyContinue
 if ($spawnedSettings) {
     Write-Host "  PASS: Instance 2 opened settings window for the user before exiting!" -ForegroundColor Green
     $spawnedSettings | Stop-Process -Force
 }
 
 # Clean up Instance 1
-$trayHwnd = [WinHelperEdge]::FindProcessWindow($inst1.Id, "lightgui_tray_wndclass")
+$trayHwnd = [WinHelperEdge]::FindProcessWindow($inst1.Id, "umbralight_tray_wndclass")
 if ($trayHwnd -ne [IntPtr]::Zero) {
     [WinHelperEdge]::PostMessage($trayHwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
 }
@@ -119,9 +119,9 @@ $inst1.Refresh()
 if (-not $inst1.HasExited) { Stop-Process -Id $inst1.Id -Force }
 
 # ----------------------------------------------------------------------------
-# 3. Single-Instance Check for lightgui-settings.exe
+# 3. Single-Instance Check for UmbraLight-settings.exe
 # ----------------------------------------------------------------------------
-Write-Host "`n[Edge Case 3] Testing Single-Instance Check for lightgui-settings.exe..." -ForegroundColor Yellow
+Write-Host "`n[Edge Case 3] Testing Single-Instance Check for UmbraLight-settings.exe..." -ForegroundColor Yellow
 
 $sInst1 = Start-Process -FilePath $settingsExe -PassThru
 Start-Sleep -Milliseconds 1000
@@ -140,7 +140,7 @@ if ($sInst2.HasExited) {
 }
 
 # Clean up Instance 1
-$sHwnd = [WinHelperEdge]::FindProcessWindow($sInst1.Id, "lightgui_settings_wndclass")
+$sHwnd = [WinHelperEdge]::FindProcessWindow($sInst1.Id, "umbralight_settings_wndclass")
 if ($sHwnd -ne [IntPtr]::Zero) {
     [WinHelperEdge]::PostMessage($sHwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
 }

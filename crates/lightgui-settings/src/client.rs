@@ -130,7 +130,7 @@ impl IpcClient {
             }
         }
 
-        Err(Error::Internal("LightGUI tray is not running".into()))
+        Err(Error::Internal("UmbraLight tray is not running".into()))
     }
 
     pub fn disconnect(&self) -> Result<()> {
@@ -141,7 +141,7 @@ impl IpcClient {
                 _ => {}
             }
         }
-        Err(Error::Internal("LightGUI tray is not running".into()))
+        Err(Error::Internal("UmbraLight tray is not running".into()))
     }
 
     pub fn switch_server(&self, server_id: &str) -> Result<()> {
@@ -155,7 +155,7 @@ impl IpcClient {
             }
         }
 
-        Err(Error::Internal("LightGUI tray is not running".into()))
+        Err(Error::Internal("UmbraLight tray is not running".into()))
     }
 
     pub fn set_routing_mode(&self, mode: RoutingMode) -> Result<()> {
@@ -167,7 +167,7 @@ impl IpcClient {
             }
         }
 
-        Err(Error::Internal("LightGUI tray is not running".into()))
+        Err(Error::Internal("UmbraLight tray is not running".into()))
     }
 
     pub fn refresh_subscription(&self, sub_id: Option<String>) -> Result<()> {
@@ -223,6 +223,15 @@ impl IpcClient {
             }
         }
         Ok(None)
+    }
+
+    pub fn ping_all_servers(&self) -> Result<Vec<(String, Option<u32>)>> {
+        match self.send_ipc(&IpcRequest::PingAllServers) {
+            Ok(IpcResponse::PingAllResults { results }) => Ok(results),
+            Ok(IpcResponse::Error(message)) => Err(Error::Internal(message)),
+            Ok(_) => Err(Error::Internal("unexpected ping response".into())),
+            Err(e) => Err(e),
+        }
     }
 }
 

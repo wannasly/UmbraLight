@@ -9,7 +9,7 @@ use crate::error::{Error, Result};
 use crate::models::{ServerEntry, SubscriptionQuota};
 use crate::parser;
 
-pub const DEFAULT_SUB_USER_AGENT: &str = "Happ/2.0.0 LightGUI/0.1.0";
+pub const DEFAULT_SUB_USER_AGENT: &str = "Happ/2.0.0 UmbraLight/1.0.0";
 
 /// Preserve local server state across subscription refreshes and format changes.
 pub fn merge_servers(existing: &[ServerEntry], fetched: Vec<ServerEntry>) -> Vec<ServerEntry> {

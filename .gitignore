@@ -1,7 +1,15 @@
 # Rust target directory
 /target
 **/*.rs.bk
-Cargo.lock
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+settings.json
+profiles.json
+*.p12
+*.pfx
 
 # Editor & IDE directories
 .idea/
@@ -13,6 +21,7 @@ Cargo.lock
 *.log
 *.tmp
 *.bak
+*.dmp
 
 # Binaries and downloaded resources
 resources/sing-box.exe

@@ -10,8 +10,8 @@ use windows_sys::Win32::UI::Shell::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
     GetWindowLongPtrW, PostQuitMessage, RegisterClassExW, SetWindowLongPtrW, TranslateMessage,
-    CW_USEDEFAULT, GWLP_USERDATA, HICON, MSG, WM_CONTEXTMENU, WM_CREATE, WM_DESTROY,
-    WM_ENDSESSION, WM_LBUTTONDBLCLK, WM_RBUTTONUP, WM_USER, WNDCLASSEXW, WS_OVERLAPPED,
+    CW_USEDEFAULT, GWLP_USERDATA, HICON, MSG, WM_CONTEXTMENU, WM_CREATE, WM_DESTROY, WM_ENDSESSION,
+    WM_LBUTTONDBLCLK, WM_RBUTTONUP, WM_USER, WNDCLASSEXW, WS_OVERLAPPED,
 };
 
 use lightgui_core::models::{ConnStatus, ConnectionState};
@@ -22,7 +22,7 @@ use crate::menu::{show_tray_popup_menu, MenuAction};
 
 pub const WM_TRAY_CALLBACK: u32 = WM_USER + 100;
 pub const TRAY_ICON_ID: u32 = 1;
-pub const WINDOW_CLASS_NAME: &str = "lightgui_tray_wndclass";
+pub const WINDOW_CLASS_NAME: &str = "umbralight_tray_wndclass";
 
 pub struct TrayApp {
     pub daemon: Arc<Daemon>,
@@ -68,7 +68,7 @@ pub unsafe fn register_tray_class() -> bool {
 
 pub unsafe fn create_tray_window(app_ptr: *mut TrayApp) -> HWND {
     let class_name_w = to_wide_null(WINDOW_CLASS_NAME);
-    let window_name_w = to_wide_null("LightGUI Tray Host");
+    let window_name_w = to_wide_null("UmbraLight Tray Host");
     let hinst = GetModuleHandleW(std::ptr::null());
 
     CreateWindowExW(
@@ -126,15 +126,15 @@ fn format_tray_tooltip(conn_state: &ConnectionState) -> String {
     match conn_state.status {
         ConnStatus::Connected => {
             let name = conn_state.server_name.as_deref().unwrap_or("Сервер");
-            format!("LightGUI - Подключено\n{name}")
+            format!("UmbraLight - Подключено\n{name}")
         }
-        ConnStatus::Connecting => "LightGUI - Подключение...".to_string(),
-        ConnStatus::Disconnecting => "LightGUI - Отключение...".to_string(),
+        ConnStatus::Connecting => "UmbraLight - Подключение...".to_string(),
+        ConnStatus::Disconnecting => "UmbraLight - Отключение...".to_string(),
         ConnStatus::Error => {
             let err = conn_state.error.as_deref().unwrap_or("Ошибка");
-            format!("LightGUI - Ошибка\n{err}")
+            format!("UmbraLight - Ошибка\n{err}")
         }
-        ConnStatus::Disconnected => "LightGUI - Отключено".to_string(),
+        ConnStatus::Disconnected => "UmbraLight - Отключено".to_string(),
     }
 }
 
@@ -142,13 +142,13 @@ pub fn launch_settings_app() {
     // 1. Try adjacent to current executable
     if let Ok(curr_exe) = std::env::current_exe() {
         if let Some(dir) = curr_exe.parent() {
-            let candidate1 = dir.join("lightgui-settings.exe");
+            let candidate1 = dir.join("UmbraLight-settings.exe");
             if candidate1.exists() {
                 let _ = std::process::Command::new(candidate1).spawn();
                 return;
             }
             // Development target folder check
-            let candidate2 = dir.join("lightgui-settings");
+            let candidate2 = dir.join("UmbraLight-settings");
             if candidate2.exists() {
                 let _ = std::process::Command::new(candidate2).spawn();
                 return;
@@ -158,7 +158,10 @@ pub fn launch_settings_app() {
 
     // 2. Try searching parent directories
     if let Ok(cwd) = std::env::current_dir() {
-        for sub in ["target/release/lightgui-settings.exe", "target/debug/lightgui-settings.exe"] {
+        for sub in [
+            "target/release/UmbraLight-settings.exe",
+            "target/debug/UmbraLight-settings.exe",
+        ] {
             let p = cwd.join(sub);
             if p.exists() {
                 let _ = std::process::Command::new(p).spawn();
@@ -168,7 +171,7 @@ pub fn launch_settings_app() {
     }
 
     // 3. Fallback to PATH
-    let _ = std::process::Command::new("lightgui-settings.exe").spawn();
+    let _ = std::process::Command::new("UmbraLight-settings.exe").spawn();
 }
 
 pub unsafe extern "system" fn tray_wnd_proc(
@@ -179,7 +182,8 @@ pub unsafe extern "system" fn tray_wnd_proc(
 ) -> LRESULT {
     match msg {
         WM_CREATE => {
-            let cs = &*(lparam as *const windows_sys::Win32::UI::WindowsAndMessaging::CREATESTRUCTW);
+            let cs =
+                &*(lparam as *const windows_sys::Win32::UI::WindowsAndMessaging::CREATESTRUCTW);
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, cs.lpCreateParams as isize);
             0
         }
@@ -211,7 +215,8 @@ pub unsafe extern "system" fn tray_wnd_proc(
 
             if mouse_msg == WM_RBUTTONUP || mouse_msg == WM_CONTEXTMENU {
                 let (conn_state, profiles, settings) = app.daemon.get_sync_state();
-                if let Some(action) = show_tray_popup_menu(hwnd, &conn_state, &profiles, &settings) {
+                if let Some(action) = show_tray_popup_menu(hwnd, &conn_state, &profiles, &settings)
+                {
                     handle_menu_action(hwnd, app, action);
                 }
             } else if mouse_msg == WM_LBUTTONDBLCLK {
@@ -245,7 +250,9 @@ pub unsafe extern "system" fn tray_wnd_proc(
             let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut TrayApp;
             if !ptr.is_null() {
                 let app = &*ptr;
-                let hicon = app.current_icon.swap(std::ptr::null_mut(), Ordering::SeqCst);
+                let hicon = app
+                    .current_icon
+                    .swap(std::ptr::null_mut(), Ordering::SeqCst);
                 if !hicon.is_null() {
                     destroy_tray_icon(hicon);
                 }

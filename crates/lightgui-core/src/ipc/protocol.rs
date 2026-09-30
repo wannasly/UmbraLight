@@ -3,7 +3,7 @@ use crate::models::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_PIPE_NAME: &str = r"\\.\pipe\lightgui_ipc";
+pub const DEFAULT_PIPE_NAME: &str = r"\\.\pipe\umbralight_ipc";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,6 +32,7 @@ pub enum IpcRequest {
     GetLogs,
     GetRunningProcesses,
     PingServer { server_id: String },
+    PingAllServers,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -46,6 +47,7 @@ pub enum IpcResponse {
     Logs(Vec<LogLine>),
     Processes(Vec<RunningProcess>),
     PingResult { delay_ms: Option<u32> },
+    PingAllResults { results: Vec<(String, Option<u32>)> },
     Success,
     Error(String),
 }

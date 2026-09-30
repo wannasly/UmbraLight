@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$runtime = Join-Path $root 'target\runtime-smoke'
+$runtime = Join-Path $root ('target\runtime-smoke-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $runtime | Out-Null
 $oldAppData = $env:APPDATA
 $env:APPDATA = $runtime
@@ -40,7 +40,7 @@ public static class LightGuiSmokeWin32 {
 '@
 
 function Send-LightGuiRequest($request) {
-    $pipe = [System.IO.Pipes.NamedPipeClientStream]::new('.', 'lightgui_ipc', [System.IO.Pipes.PipeDirection]::InOut)
+    $pipe = [System.IO.Pipes.NamedPipeClientStream]::new('.', 'umbralight_ipc', [System.IO.Pipes.PipeDirection]::InOut)
     try {
         $pipe.Connect(3000)
         $json = $request | ConvertTo-Json -Compress -Depth 30
@@ -72,13 +72,13 @@ function Send-LightGuiRequest($request) {
 }
 
 try {
-    if (Get-Process lightgui -ErrorAction SilentlyContinue) {
-        throw 'Another LightGUI tray is running; close it before this single-instance smoke test.'
+    if (Get-Process UmbraLight -ErrorAction SilentlyContinue) {
+        throw 'Another UmbraLight tray is running; close it before this single-instance smoke test.'
     }
-    $tray = Start-Process -FilePath (Join-Path $root 'target\release\lightgui.exe') -PassThru -WindowStyle Hidden
+    $tray = Start-Process -FilePath (Join-Path $root 'target\release\UmbraLight.exe') -PassThru -WindowStyle Hidden
     Start-Sleep -Milliseconds 700
     $status = Send-LightGuiRequest @{ type = 'getStatus' }
-    if ($status.payload.state.status -ne 'disconnected') { throw 'Tray did not start disconnected' }
+    if ($status.payload.state.status -ne 'disconnected') { throw "Tray did not start disconnected: $($status | ConvertTo-Json -Compress -Depth 10)" }
 
     $profiles = @{
         version = 2
@@ -91,6 +91,10 @@ try {
     }
     $save = Send-LightGuiRequest @{ type = 'saveProfiles'; payload = @{ profiles = $profiles } }
     if ($save.type -ne 'success') { throw "SaveProfiles failed: $($save | ConvertTo-Json -Compress)" }
+    $pingAll = Send-LightGuiRequest @{ type = 'pingAllServers' }
+    if ($pingAll.type -ne 'pingAllResults' -or $pingAll.payload.results.Count -ne 1) {
+        throw "PingAllServers failed: $($pingAll | ConvertTo-Json -Compress -Depth 10)"
+    }
     $switch = Send-LightGuiRequest @{ type = 'switchServer'; payload = @{ serverId = 'smoke' } }
     if ($switch.type -ne 'success') { throw "SwitchServer failed: $($switch | ConvertTo-Json -Compress)" }
     $status = Send-LightGuiRequest @{ type = 'getStatus' }
@@ -103,9 +107,9 @@ try {
     $persisted = Get-Content -LiteralPath (Join-Path $runtime 'lightgui\settings.json') -Raw | ConvertFrom-Json
     if ($persisted.mixedPort -ne 28880) { throw 'Settings were not persisted through tray IPC' }
 
-    $settings = Start-Process -FilePath (Join-Path $root 'target\release\lightgui-settings.exe') -PassThru
+    $settings = Start-Process -FilePath (Join-Path $root 'target\release\UmbraLight-settings.exe') -PassThru
     Start-Sleep -Milliseconds 700
-    $settingsWindow = [LightGuiSmokeWin32]::FindProcessWindow($settings.Id, 'lightgui_settings_wndclass')
+    $settingsWindow = [LightGuiSmokeWin32]::FindProcessWindow($settings.Id, 'umbralight_settings_wndclass')
     if ($settingsWindow -eq [IntPtr]::Zero) { throw 'Settings window was not created' }
 
     $tray.Refresh()
@@ -120,7 +124,7 @@ try {
     if (-not $settings.WaitForExit(3000)) { throw 'Settings failed to exit' }
     $tray.Refresh()
     Write-Output "Tray with Settings closed: RAM $([math]::Round($tray.WorkingSet64 / 1MB, 1)) MB, threads $($tray.Threads.Count), handles $($tray.HandleCount)"
-    $trayWindow = [LightGuiSmokeWin32]::FindProcessWindow($tray.Id, 'lightgui_tray_wndclass')
+    $trayWindow = [LightGuiSmokeWin32]::FindProcessWindow($tray.Id, 'umbralight_tray_wndclass')
     if ($trayWindow -eq [IntPtr]::Zero) { throw 'Tray window was not found' }
     [LightGuiSmokeWin32]::PostMessageW($trayWindow, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
     if (-not $tray.WaitForExit(3000)) { throw 'Tray failed to exit' }

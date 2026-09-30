@@ -1,16 +1,17 @@
-use windows_sys::Win32::Foundation::HWND;
-use windows_sys::Win32::Graphics::Gdi::HFONT;
-use lightgui_core::models::{ProxyKind, ServerEntry};
 use crate::client::IpcClient;
 use crate::controls::{
     add_listview_column, add_listview_row, clear_listview, create_button, create_label,
     create_listview, get_listview_selected, set_text, set_visible,
 };
 use crate::tabs::Tab;
+use lightgui_core::models::{ProxyKind, ServerEntry};
+use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::Graphics::Gdi::HFONT;
 
 const IDC_SRV_LIST: usize = 301;
 const IDC_SRV_PING_BTN: usize = 302;
 const IDC_SRV_ACTIVE_BTN: usize = 303;
+const IDC_SRV_PING_ALL_BTN: usize = 304;
 
 pub struct ServersTab {
     controls: Vec<HWND>,
@@ -45,10 +46,40 @@ impl ServersTab {
         add_listview_column(listview_hwnd, 4, "Latency", 70);
         controls.push(listview_hwnd);
 
-        let ping_btn = create_button(parent, "Ping Server", IDC_SRV_PING_BTN, 190, 415, 140, 30, font);
+        let ping_btn = create_button(
+            parent,
+            "Ping Server",
+            IDC_SRV_PING_BTN,
+            190,
+            415,
+            140,
+            30,
+            font,
+        );
         controls.push(ping_btn);
 
-        let active_btn = create_button(parent, "Set as Active Server", IDC_SRV_ACTIVE_BTN, 345, 415, 160, 30, font);
+        let ping_all_btn = create_button(
+            parent,
+            "Ping All",
+            IDC_SRV_PING_ALL_BTN,
+            340,
+            415,
+            120,
+            30,
+            font,
+        );
+        controls.push(ping_all_btn);
+
+        let active_btn = create_button(
+            parent,
+            "Set as Active Server",
+            IDC_SRV_ACTIVE_BTN,
+            470,
+            415,
+            180,
+            30,
+            font,
+        );
         controls.push(active_btn);
 
         let status_label_hwnd = create_label(parent, "", 190, 460, 590, 40, font);
@@ -110,13 +141,44 @@ impl Tab for ServersTab {
 
     fn on_command(&mut self, client: &IpcClient, id: usize, _code: u16) {
         match id {
+            IDC_SRV_PING_ALL_BTN => {
+                if self.cached_servers.is_empty() {
+                    unsafe {
+                        set_text(self.status_label_hwnd, "No servers to ping.");
+                    }
+                    return;
+                }
+                unsafe {
+                    set_text(self.status_label_hwnd, "Pinging all servers...");
+                }
+                match client.ping_all_servers() {
+                    Ok(results) => {
+                        let succeeded = results.iter().filter(|(_, delay)| delay.is_some()).count();
+                        self.reload_data(client);
+                        unsafe {
+                            set_text(
+                                self.status_label_hwnd,
+                                &format!(
+                                    "Ping complete: {succeeded}/{} servers available.",
+                                    results.len()
+                                ),
+                            );
+                        }
+                    }
+                    Err(e) => unsafe {
+                        set_text(self.status_label_hwnd, &format!("Ping error: {e}"));
+                    },
+                }
+            }
             IDC_SRV_PING_BTN => {
                 let sel = unsafe { get_listview_selected(self.listview_hwnd) };
                 if sel >= 0 && (sel as usize) < self.cached_servers.len() {
                     let srv_id = self.cached_servers[sel as usize].id.clone();
                     let srv_name = self.cached_servers[sel as usize].name.clone();
 
-                    unsafe { set_text(self.status_label_hwnd, &format!("Pinging {srv_name}...")); }
+                    unsafe {
+                        set_text(self.status_label_hwnd, &format!("Pinging {srv_name}..."));
+                    }
 
                     let ping_res = client.ping_server(&srv_id);
                     match ping_res {
@@ -134,25 +196,20 @@ impl Tab for ServersTab {
                             }
                             self.reload_data(client);
                         }
-                        Ok(None) => {
-                            unsafe {
-                                set_text(
-                                    self.status_label_hwnd,
-                                    &format!("Ping to {srv_name} failed or timed out"),
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            unsafe {
-                                set_text(
-                                    self.status_label_hwnd,
-                                    &format!("Ping error: {e}"),
-                                );
-                            }
-                        }
+                        Ok(None) => unsafe {
+                            set_text(
+                                self.status_label_hwnd,
+                                &format!("Ping to {srv_name} failed or timed out"),
+                            );
+                        },
+                        Err(e) => unsafe {
+                            set_text(self.status_label_hwnd, &format!("Ping error: {e}"));
+                        },
                     }
                 } else {
-                    unsafe { set_text(self.status_label_hwnd, "Please select a server first."); }
+                    unsafe {
+                        set_text(self.status_label_hwnd, "Please select a server first.");
+                    }
                 }
             }
             IDC_SRV_ACTIVE_BTN => {
@@ -172,17 +229,17 @@ impl Tab for ServersTab {
                             }
                             self.reload_data(client);
                         }
-                        Err(e) => {
-                            unsafe {
-                                set_text(
-                                    self.status_label_hwnd,
-                                    &format!("Failed to switch server: {e}"),
-                                );
-                            }
-                        }
+                        Err(e) => unsafe {
+                            set_text(
+                                self.status_label_hwnd,
+                                &format!("Failed to switch server: {e}"),
+                            );
+                        },
                     }
                 } else {
-                    unsafe { set_text(self.status_label_hwnd, "Please select a server first."); }
+                    unsafe {
+                        set_text(self.status_label_hwnd, "Please select a server first.");
+                    }
                 }
             }
             _ => {}

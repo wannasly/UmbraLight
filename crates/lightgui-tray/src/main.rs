@@ -11,14 +11,12 @@ use windows_sys::Win32::System::Threading::CreateMutexW;
 
 use daemon::{run_ipc_server, Daemon};
 use icon::{create_tray_icon_for_status, IconStatus};
-use tray::{
-    add_tray_icon, create_tray_window, register_tray_class, run_message_loop, TrayApp,
-};
+use tray::{add_tray_icon, create_tray_window, register_tray_class, run_message_loop, TrayApp};
 
 unsafe fn acquire_single_instance_mutex() -> Option<HANDLE> {
     let names = [
-        "Global\\lightgui_tray_single_instance",
-        "Local\\lightgui_tray_single_instance",
+        "Global\\umbralight_tray_single_instance",
+        "Local\\umbralight_tray_single_instance",
     ];
 
     for name in names {
@@ -93,7 +91,7 @@ fn main() {
         let (conn_state, _, _) = daemon.get_sync_state();
         let icon_status = IconStatus::from(conn_state.status);
         if let Some(hicon) = create_tray_icon_for_status(icon_status) {
-            let tip = "LightGUI - Отключено";
+            let tip = "UmbraLight - Отключено";
             add_tray_icon(hwnd, hicon, tip);
             (*app_ptr).current_icon.store(hicon, Ordering::SeqCst);
         }

@@ -66,6 +66,7 @@ pub struct DaemonSyncState {
     pub tag_by_server_id: HashMap<String, String>,
 }
 
+#[derive(Clone)]
 pub struct Daemon {
     pub sync_state: Arc<RwLock<DaemonSyncState>>,
     pub runner: Arc<TokioMutex<Option<CoreProcess>>>,
@@ -612,7 +613,7 @@ impl Daemon {
                 if let Ok(delay) =
                     clash_api::test_delay(clash_port, &clash_secret, &t, &ping_url, 3000).await
                 {
-                    self.record_server_ping(server_id, delay);
+                    self.record_server_ping(server_id, Some(delay));
                     return Some(delay);
                 }
             }
@@ -620,16 +621,14 @@ impl Daemon {
 
         // 2. Fallback to TCP ping
         let delay = lightgui_core::net::ping::tcp_ping(&node.server, node.port).await;
-        if let Some(d) = delay {
-            self.record_server_ping(server_id, d);
-        }
+        self.record_server_ping(server_id, delay);
         delay
     }
 
-    fn record_server_ping(&self, server_id: &str, delay_ms: u32) {
+    fn record_server_ping(&self, server_id: &str, delay_ms: Option<u32>) {
         let mut g = self.sync_state.write();
         if let Some(s) = g.profiles.find_server_mut(server_id) {
-            s.last_ping_ms = Some(delay_ms);
+            s.last_ping_ms = delay_ms;
         }
         let _ = save_profiles(&g.data_dir, &g.profiles);
     }
@@ -702,6 +701,31 @@ impl Daemon {
             IpcRequest::PingServer { server_id } => {
                 let delay = self.ping_server(&server_id).await;
                 IpcResponse::PingResult { delay_ms: delay }
+            }
+            IpcRequest::PingAllServers => {
+                let ids: Vec<String> = self
+                    .sync_state
+                    .read()
+                    .profiles
+                    .all_servers()
+                    .map(|server| server.id.clone())
+                    .collect();
+                let mut results = Vec::with_capacity(ids.len());
+                for batch in ids.chunks(8) {
+                    let mut jobs = tokio::task::JoinSet::new();
+                    for id in batch {
+                        let daemon = self.clone();
+                        let id = id.clone();
+                        jobs.spawn(async move {
+                            let delay = daemon.ping_server(&id).await;
+                            (id, delay)
+                        });
+                    }
+                    while let Some(Ok(result)) = jobs.join_next().await {
+                        results.push(result);
+                    }
+                }
+                IpcResponse::PingAllResults { results }
             }
         }
     }
@@ -850,6 +874,41 @@ mod tests {
             other => panic!("Expected Processes response, got {other:?}"),
         }
 
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[tokio::test]
+    async fn ping_all_reports_and_persists_results() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("lightgui-ping-all-test-{nonce}"));
+        let daemon = Daemon::init(Some(temp_dir.clone()));
+        let link = format!(
+            "vless://11111111-2222-3333-4444-555555555555@127.0.0.1:{port}?security=none#Local"
+        );
+        let (servers, errors) = lightgui_core::parser::parse_links(&link);
+        assert!(errors.is_empty());
+        let mut profiles = ProfileStore::default();
+        profiles.manual = servers;
+        let id = profiles.manual[0].id.clone();
+        assert_eq!(
+            daemon
+                .handle_ipc_request(IpcRequest::SaveProfiles { profiles })
+                .await,
+            IpcResponse::Success
+        );
+        let response = daemon.handle_ipc_request(IpcRequest::PingAllServers).await;
+        match response {
+            IpcResponse::PingAllResults { results } => {
+                assert_eq!(results.len(), 1);
+                assert_eq!(results[0].0, id);
+                assert!(results[0].1.is_some());
+            }
+            other => panic!("Expected ping results, got {other:?}"),
+        }
+        assert!(load_profiles(&temp_dir).unwrap().manual[0].last_ping_ms.is_some());
         let _ = std::fs::remove_dir_all(temp_dir);
     }
 

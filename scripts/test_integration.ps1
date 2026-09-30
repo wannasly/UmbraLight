@@ -1,20 +1,20 @@
 Write-Host "=========================================" -ForegroundColor Cyan
-Write-Host " LightGUI Runtime & IPC Integration Test" -ForegroundColor Cyan
+Write-Host " UmbraLight Runtime & IPC Integration Test" -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 
 # Cleanup existing processes if any
-Get-Process -Name "lightgui", "lightgui-settings" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "UmbraLight", "UmbraLight-settings" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 500
 
-$trayExe = (Resolve-Path "target/release/lightgui.exe").Path
-$settingsExe = (Resolve-Path "target/release/lightgui-settings.exe").Path
+$trayExe = (Resolve-Path "target/release/UmbraLight.exe").Path
+$settingsExe = (Resolve-Path "target/release/UmbraLight-settings.exe").Path
 
 if (-not (Test-Path $trayExe)) {
-    Write-Error "lightgui.exe not found at $trayExe"
+    Write-Error "UmbraLight.exe not found at $trayExe"
     exit 1
 }
 if (-not (Test-Path $settingsExe)) {
-    Write-Error "lightgui-settings.exe not found at $settingsExe"
+    Write-Error "UmbraLight-settings.exe not found at $settingsExe"
     exit 1
 }
 
@@ -59,34 +59,34 @@ public class Win32Helper {
 "@
 Add-Type -TypeDefinition $win32Def -ErrorAction SilentlyContinue
 
-# a. Launch target/release/lightgui.exe
-Write-Host "`n[1/7] Launching lightgui.exe (Tray Daemon)..." -ForegroundColor Yellow
+# a. Launch target/release/UmbraLight.exe
+Write-Host "`n[1/7] Launching UmbraLight.exe (Tray Daemon)..." -ForegroundColor Yellow
 $trayStartTime = [System.Diagnostics.Stopwatch]::StartNew()
 $trayProc = Start-Process -FilePath $trayExe -PassThru
 $trayStartupDurationMs = $trayStartTime.ElapsedMilliseconds
 Write-Host "  Started PID: $($trayProc.Id) in $trayStartupDurationMs ms"
 
-# b. Verify named pipe \\.\pipe\lightgui_ipc
-Write-Host "`n[2/7] Verifying named pipe \\.\pipe\lightgui_ipc..." -ForegroundColor Yellow
+# b. Verify named pipe \\.\pipe\umbralight_ipc
+Write-Host "`n[2/7] Verifying named pipe \\.\pipe\umbralight_ipc..." -ForegroundColor Yellow
 $pipeFound = $false
 $pipeTimeout = 10 # 5 seconds
 for ($i = 0; $i -lt $pipeTimeout; $i++) {
     Start-Sleep -Milliseconds 500
     $pipes = [System.IO.Directory]::GetFiles("\\.\pipe\")
-    if ($pipes -contains "\\.\pipe\lightgui_ipc") {
+    if ($pipes -contains "\\.\pipe\umbralight_ipc") {
         $pipeFound = $true
         break
     }
 }
 
 if ($pipeFound) {
-    Write-Host "  PASS: Named pipe \\.\pipe\lightgui_ipc exists and is listening!" -ForegroundColor Green
+    Write-Host "  PASS: Named pipe \\.\pipe\umbralight_ipc exists and is listening!" -ForegroundColor Green
 } else {
-    Write-Host "  FAIL: Named pipe \\.\pipe\lightgui_ipc was NOT found!" -ForegroundColor Red
+    Write-Host "  FAIL: Named pipe \\.\pipe\umbralight_ipc was NOT found!" -ForegroundColor Red
 }
 
-# c. Launch target/release/lightgui-settings.exe
-Write-Host "`n[3/7] Launching lightgui-settings.exe..." -ForegroundColor Yellow
+# c. Launch target/release/UmbraLight-settings.exe
+Write-Host "`n[3/7] Launching UmbraLight-settings.exe..." -ForegroundColor Yellow
 $settingsStartTime = [System.Diagnostics.Stopwatch]::StartNew()
 $settingsProc = Start-Process -FilePath $settingsExe -PassThru
 $settingsStartupDurationMs = $settingsStartTime.ElapsedMilliseconds
@@ -123,23 +123,23 @@ $settingsPriv = [math]::Round($settingsProc.PrivateMemorySize64 / 1MB, 2)
 $settingsThreads = $settingsProc.Threads.Count
 $settingsHandles = $settingsProc.HandleCount
 
-Write-Host "  --- lightgui.exe (Tray Daemon) ---" -ForegroundColor Cyan
+Write-Host "  --- UmbraLight.exe (Tray Daemon) ---" -ForegroundColor Cyan
 Write-Host "    WorkingSet (RAM):    $trayWS MB"
 Write-Host "    PrivateMemory:       $trayPriv MB"
 Write-Host "    Thread Count:        $trayThreads"
 Write-Host "    Handle Count:        $trayHandles"
 Write-Host "    CPU Usage:           $trayCpuPct %"
 
-Write-Host "  --- lightgui-settings.exe ---" -ForegroundColor Cyan
+Write-Host "  --- UmbraLight-settings.exe ---" -ForegroundColor Cyan
 Write-Host "    WorkingSet (RAM):    $settingsWS MB"
 Write-Host "    PrivateMemory:       $settingsPriv MB"
 Write-Host "    Thread Count:        $settingsThreads"
 Write-Host "    Handle Count:        $settingsHandles"
 Write-Host "    CPU Usage:           $settingsCpuPct %"
 
-# e. Close lightgui-settings.exe and verify clean exit
-Write-Host "`n[5/7] Closing lightgui-settings.exe via WM_CLOSE..." -ForegroundColor Yellow
-$settingsHwnd = [Win32Helper]::FindProcessWindow($settingsProc.Id, "lightgui_settings_wndclass")
+# e. Close UmbraLight-settings.exe and verify clean exit
+Write-Host "`n[5/7] Closing UmbraLight-settings.exe via WM_CLOSE..." -ForegroundColor Yellow
+$settingsHwnd = [Win32Helper]::FindProcessWindow($settingsProc.Id, "umbralight_settings_wndclass")
 if ($settingsHwnd -ne [IntPtr]::Zero) {
     [Win32Helper]::PostMessage($settingsHwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
     Write-Host "  Posted WM_CLOSE (0x0010) to settings HWND: $settingsHwnd"
@@ -159,20 +159,20 @@ for ($i = 0; $i -lt 10; $i++) {
 }
 
 if ($settingsExited) {
-    Write-Host "  PASS: lightgui-settings.exe exited completely!" -ForegroundColor Green
-    $remaining = Get-Process -Name "lightgui-settings" -ErrorAction SilentlyContinue
+    Write-Host "  PASS: UmbraLight-settings.exe exited completely!" -ForegroundColor Green
+    $remaining = Get-Process -Name "UmbraLight-settings" -ErrorAction SilentlyContinue
     if ($null -eq $remaining) {
         Write-Host "  PASS: 0 lightgui-settings processes remain. 0 MB RAM and 0 handles leaked!" -ForegroundColor Green
     } else {
         Write-Host "  WARN: Zombie process found!" -ForegroundColor Yellow
     }
 } else {
-    Write-Host "  FAIL: lightgui-settings.exe did not exit in time!" -ForegroundColor Red
+    Write-Host "  FAIL: UmbraLight-settings.exe did not exit in time!" -ForegroundColor Red
     Stop-Process -Id $settingsProc.Id -Force
 }
 
-# f. Verify lightgui.exe remains running at near 0% CPU and low RAM
-Write-Host "`n[6/7] Verifying lightgui.exe idle state after settings exit..." -ForegroundColor Yellow
+# f. Verify UmbraLight.exe remains running at near 0% CPU and low RAM
+Write-Host "`n[6/7] Verifying UmbraLight.exe idle state after settings exit..." -ForegroundColor Yellow
 Start-Sleep -Milliseconds 1000
 $trayProc.Refresh()
 if (-not $trayProc.HasExited) {
@@ -180,28 +180,28 @@ if (-not $trayProc.HasExited) {
     $t2Priv = [math]::Round($trayProc.PrivateMemorySize64 / 1MB, 2)
     $t2Threads = $trayProc.Threads.Count
     $t2Handles = $trayProc.HandleCount
-    Write-Host "  lightgui.exe status: Running (PID: $($trayProc.Id))"
+    Write-Host "  UmbraLight.exe status: Running (PID: $($trayProc.Id))"
     Write-Host "    WorkingSet (RAM):    $t2WS MB"
     Write-Host "    PrivateMemory:       $t2Priv MB"
     Write-Host "    Thread Count:        $t2Threads"
     Write-Host "    Handle Count:        $t2Handles"
     if ($t2WS -lt 25.0) {
-        Write-Host "  PASS: lightgui.exe RAM usage is low ($t2WS MB < 25 MB)!" -ForegroundColor Green
+        Write-Host "  PASS: UmbraLight.exe RAM usage is low ($t2WS MB < 25 MB)!" -ForegroundColor Green
     } else {
-        Write-Host "  WARN: lightgui.exe RAM is $t2WS MB" -ForegroundColor Yellow
+        Write-Host "  WARN: UmbraLight.exe RAM is $t2WS MB" -ForegroundColor Yellow
     }
 } else {
-    Write-Host "  FAIL: lightgui.exe unexpectedly exited!" -ForegroundColor Red
+    Write-Host "  FAIL: UmbraLight.exe unexpectedly exited!" -ForegroundColor Red
 }
 
-# g. Gracefully terminate lightgui.exe
-Write-Host "`n[7/7] Gracefully terminating lightgui.exe..." -ForegroundColor Yellow
-$trayHwnd = [Win32Helper]::FindProcessWindow($trayProc.Id, "lightgui_tray_wndclass")
+# g. Gracefully terminate UmbraLight.exe
+Write-Host "`n[7/7] Gracefully terminating UmbraLight.exe..." -ForegroundColor Yellow
+$trayHwnd = [Win32Helper]::FindProcessWindow($trayProc.Id, "umbralight_tray_wndclass")
 Write-Host "  Found tray window HWND: $trayHwnd"
 if ($trayHwnd -ne [IntPtr]::Zero) {
     # 0x0010 = WM_CLOSE
     [Win32Helper]::PostMessage($trayHwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-    Write-Host "  Sent WM_CLOSE to lightgui_tray_wndclass window..."
+    Write-Host "  Sent WM_CLOSE to umbralight_tray_wndclass window..."
 } else {
     Write-Host "  Window not found by class, sending CloseMainWindow..."
     $trayProc.CloseMainWindow() | Out-Null
@@ -218,9 +218,9 @@ for ($i = 0; $i -lt 10; $i++) {
 }
 
 if ($trayExited) {
-    Write-Host "  PASS: lightgui.exe terminated gracefully!" -ForegroundColor Green
+    Write-Host "  PASS: UmbraLight.exe terminated gracefully!" -ForegroundColor Green
 } else {
-    Write-Host "  WARN: lightgui.exe did not exit via WM_CLOSE within 3s, stopping forcefully..." -ForegroundColor Yellow
+    Write-Host "  WARN: UmbraLight.exe did not exit via WM_CLOSE within 3s, stopping forcefully..." -ForegroundColor Yellow
     Stop-Process -Id $trayProc.Id -Force
 }
 
