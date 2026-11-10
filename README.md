@@ -12,7 +12,7 @@ Profiles and settings use `%APPDATA%/lightgui` for compatibility with earlier bu
 
 ## Build and test
 
-Use Rust and Cargo with the Windows MSVC toolchain.
+Use Rust and Cargo with the Windows MSVC toolchain. Before testing a fresh clone, download the [Windows x64 sing-box 1.13.14 archive](https://github.com/SagerNet/sing-box/releases/download/v1.13.14/sing-box-1.13.14-windows-amd64.zip), verify its SHA-256 with `Get-FileHash -Algorithm SHA256`, and extract `sing-box.exe` into `resources/` at the workspace root. The expected hash is `f580782c6dd10f7691c66cea1d7c421813c5fbf7e305d1ee7ce0c3a40d196341`. The tests use this executable to validate generated configs and exercise the core lifecycle.
 
 ```powershell
 cargo test --workspace --locked

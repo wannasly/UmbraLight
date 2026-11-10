@@ -53,6 +53,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-installer.ps1
 
 ## Проверка
 
+Перед запуском тестов в чистом клоне скачайте [архив sing-box 1.13.14 для Windows x64](https://github.com/SagerNet/sing-box/releases/download/v1.13.14/sing-box-1.13.14-windows-amd64.zip), проверьте SHA-256 из [инструкции на английском](README.md#build-and-test) и извлеките sing-box.exe в каталог resources в корне проекта. Бинарник нужен для проверки конфигураций и запуска ядра в тестах.
+
 ```powershell
 cargo test --workspace
 powershell -ExecutionPolicy Bypass -File .\scripts\test_runtime_smoke.ps1
